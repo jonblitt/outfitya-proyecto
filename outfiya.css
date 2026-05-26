@@ -1,0 +1,414 @@
+:root {
+    --primary-dark: #09090b;
+    --accent-purple: #6d28d9;
+    --accent-light: #a78bfa;
+    --bg-workspace: #fafafa;
+    --card-surface: #ffffff;
+    --text-main: #18181b;
+    --text-muted: #71717a;
+    --border-line: #e4e4e7;
+    --error-bright: #ef4444;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    scroll-behavior: smooth;
+}
+
+body {
+    background-color: var(--bg-workspace);
+    color: var(--text-main);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* Header & Navbar */
+.app-header {
+    background-color: var(--primary-dark);
+    color: white;
+    padding: 1rem 2rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-container {
+    max-width: 1300px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.logo span {
+    color: var(--accent-light);
+}
+
+.main-nav a {
+    color: #e4e4e7;
+    text-decoration: none;
+    margin-left: 1.5rem;
+    font-size: 0.9rem;
+    transition: color 0.2s;
+}
+
+.main-nav a:hover, .main-nav a.active {
+    color: var(--accent-light);
+}
+
+.badge-ficha {
+    background-color: #27272a;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+/* Hero Section */
+.hero-section {
+    background: linear-gradient(135deg, #09090b 0%, #1e1b4b 100%);
+    color: white;
+    padding: 4rem 2rem;
+    text-align: center;
+}
+
+.hero-content max-width {
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+.hero-section h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.hero-section p {
+    color: #a1a1aa;
+    margin-bottom: 2rem;
+}
+
+.btn-primary {
+    background-color: var(--accent-purple);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.btn-primary:hover {
+    background-color: #5b21b6;
+}
+
+/* Application Layout */
+.app-layout {
+    max-width: 1300px;
+    width: 100%;
+    margin: 3rem auto;
+    padding: 0 1.5rem;
+    display: grid;
+    grid-template-columns: 1.2fr 1.8fr;
+    gap: 2.5rem;
+    flex: 1;
+}
+
+@media (max-width: 950px) {
+    .app-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.panel-card {
+    background-color: var(--card-surface);
+    border: 1px solid var(--border-line);
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+
+.card-header h2 {
+    font-size: 1.4rem;
+    margin-bottom: 0.25rem;
+}
+
+.card-header p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+}
+
+/* Form Controls & Ranges */
+.form-control {
+    margin-bottom: 1.5rem;
+}
+
+.form-control label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.form-control input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent-purple);
+}
+
+.form-control select {
+    width: 100%;
+    padding: 0.65rem;
+    border: 1px solid var(--border-line);
+    border-radius: 6px;
+    outline: none;
+}
+
+.form-control.invalid select {
+    border-color: var(--error-bright);
+}
+
+.error-message {
+    font-size: 0.75rem;
+    color: var(--error-bright);
+    margin-top: 0.25rem;
+    display: none;
+}
+
+.btn-submit {
+    width: 100%;
+    background-color: var(--primary-dark);
+    color: white;
+    border: none;
+    padding: 0.8rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* 3D Simulation Viewport */
+.avatar-render-container {
+    margin-top: 2rem;
+    border-top: 1px solid var(--border-line);
+    padding-top: 1.5rem;
+}
+
+.render-viewport {
+    height: 250px;
+    background: radial-gradient(circle, #2e1065 0%, #09090b 100%);
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.avatar-mesh {
+    width: 70px;
+    height: 170px; /* Será alterado dinámicamente por JS */
+    background-color: rgba(167, 139, 250, 0.4);
+    border: 2px solid var(--accent-light);
+    border-radius: 20px;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 0 20px rgba(167, 139, 250, 0.6);
+}
+
+.mesh-label {
+    font-size: 0.65rem;
+    color: white;
+    text-align: center;
+}
+
+.render-info {
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+/* Products Grid */
+.products-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.product-item {
+    border: 1px solid var(--border-line);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    background: white;
+    transition: transform 0.2s;
+}
+
+.product-item:hover {
+    transform: translateY(-4px);
+}
+
+.product-img-placeholder {
+    font-size: 3rem;
+    background-color: var(--bg-workspace);
+    padding: 2rem 0;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.product-item h3 {
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+}
+
+.product-item .price {
+    font-weight: 700;
+    color: var(--accent-purple);
+    margin-bottom: 1rem;
+}
+
+.btn-action-load {
+    background-color: transparent;
+    border: 1px solid var(--accent-purple);
+    color: var(--accent-purple);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.btn-action-load:hover {
+    background-color: var(--accent-purple);
+    color: white;
+}
+
+/* Outfitya AI Floating Widget */
+.ai-widget-container {
+    position: fixed;
+    bottom: 25px;
+    right: 25px;
+    z-index: 1000;
+}
+
+.ai-toggle-btn {
+    background-color: var(--accent-purple);
+    color: white;
+    border: none;
+    padding: 0.8rem 1.5rem;
+    border-radius: 30px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(109, 40, 217, 0.4);
+}
+
+.ai-chat-window {
+    position: absolute;
+    bottom: 60px;
+    right: 0;
+    width: 320px;
+    height: 400px;
+    background: white;
+    border: 1px solid var(--border-line);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    display: none; /* Controlado por JS */
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-header {
+    background-color: var(--accent-purple);
+    color: white;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-indicator {
+    font-size: 0.75rem;
+    background-color: #10b981;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+}
+
+.chat-body {
+    flex: 1;
+    padding: 1rem;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.message {
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    max-width: 85%;
+}
+
+.bot-msg {
+    background-color: #f4f4f5;
+    align-self: flex-start;
+}
+
+.user-msg {
+    background-color: var(--accent-purple);
+    color: white;
+    align-self: flex-end;
+}
+
+.chat-footer {
+    padding: 0.75rem;
+    border-top: 1px solid var(--border-line);
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chat-footer input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid var(--border-line);
+    border-radius: 6px;
+    outline: none;
+}
+
+.chat-footer button {
+    background-color: var(--accent-purple);
+    color: white;
+    border: none;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+/* Footer */
+.app-footer {
+    background-color: var(--primary-dark);
+    color: #a1a1aa;
+    text-align: center;
+    padding: 2rem;
+    font-size: 0.85rem;
+    margin-top: 4rem;
+    border-top: 2px solid var(--accent-purple);
+}
+
+.app-footer .subtext {
+    color: #71717a;
+    margin-top: 0.4rem;
+    font-size: 0.75rem;
+}
