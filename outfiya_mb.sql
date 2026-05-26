@@ -364,6 +364,16 @@ CREATE TABLE chatbot_lexico (
     categoria VARCHAR(30)
 )ENGINE=INNODB;
 
+CREATE TABLE IF NOT EXISTS tickets_compra (
+  id_ticket           INT NOT NULL AUTO_INCREMENT,
+  usuario_email       VARCHAR(150) NOT NULL,
+  prenda_seleccionada VARCHAR(100) NOT NULL,
+  altura_biometrica   DECIMAL(5,2) NOT NULL,
+  peso_biometrico     DECIMAL(5,2) NOT NULL,
+  fecha_creacion      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_ticket)
+) ENGINE=INNODB;
+
 -- "Entrenamos" la base de datos insertando el léxico expandido de Outfitya
 INSERT INTO chatbot_lexico (palabra_clave, respuesta, categoria) VALUES
 ('envio', 'Los envíos en Bogotá tardan de 24 a 48 horas. A nivel nacional de 3 a 5 días hábiles.', 'logistica'),

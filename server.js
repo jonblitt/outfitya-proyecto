@@ -9,14 +9,14 @@ app.use(express.json());
 // Configuración de la conexión a MariaDB basada en tu script
 const pool = mariadb.createPool({
      host: 'localhost', 
-     user: 'root',              // Ajusta según tus credenciales de XAMPP/MariaDB
-     password: 'tu_password',   
-     database: 'outfitya_db',   // Nombre exacto definido en tu SCRIPT
+     user: 'root',              
+     password: '',   // Vacío si usas XAMPP por defecto
+     database: 'outfitya_db',   
      connectionLimit: 5
 });
 
 // ============================================================
-// ENDPOINT: Cargar Perfil de Usuario Real (RF11)
+// ENDPOINT: Cargar Perfil de Usuario Real
 // ============================================================
 app.get('/api/perfil', async (req, res) => {
     let conn;
@@ -138,7 +138,8 @@ app.get('/api/perfil', async (req, res) => {
     try {
         conn = await pool.getConnection();
         // Traemos el primer perfil disponible para la simulación
-        const rows = await conn.query("SELECT nombre, email, membresia, ciudad FROM usuarios_perfil LIMIT 1");
+        const query = "SELECT nombre, email, membresia, ciudad FROM usuarios_perfil LIMIT 1";
+        const rows = await conn.query(query);
         if (rows.length > 0) {
             res.json(rows[0]);
         } else {
@@ -172,5 +173,13 @@ app.post('/api/tickets', async (req, res) => {
     } finally {
         if (conn) conn.end();
     }
+});
+
+// ============================================================
+// INICIALIZACIÓN DEL SERVIDOR
+// ============================================================
+const PORT = 5234; // El mismo puerto que usas en el frontend
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor de Outfitya corriendo con éxito en http://localhost:${PORT}`);
 });
 password: 'SU_CONTRASENA_LOCAL'

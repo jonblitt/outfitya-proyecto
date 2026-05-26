@@ -133,4 +133,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Inicializar dimensiones
     updateAvatarDimensions();
+    
+    // ============================================================
+// CONEXIÓN INTEGRAL CON EL SERVIDOR DE TICKETS (MARIADB)
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+    // Capturamos el botón del formulario mediante su clase nativa en el HTML
+    const btnEnviarTicket = document.querySelector('.btn-action-submit');
+    const selectPrenda = document.getElementById('select-prenda');
+    
+    // Capturamos los sliders con los IDs que usa tu versión limpia
+    const sliderAltura = document.getElementById('range-altura');
+    const sliderPeso = document.getElementById('range-peso');
+
+    if (btnEnviarTicket) {
+        btnEnviarTicket.addEventListener('click', (e) => {
+            // Evitamos que la página se refresque o interfiera con el avatar
+            e.preventDefault(); 
+
+            // Validación rápida de prenda
+            if (!selectPrenda || selectPrenda.value === "") {
+                alert("Por favor, selecciona una prenda antes de enviar al probador.");
+                return;
+            }
+
+            // Construimos la estructura de datos exacta que espera server.js
+            const payloadTicket = {
+                email: "juan@correo.com", // El usuario simulado en tu backend
+                prenda: selectPrenda.value,
+                altura: parseFloat(sliderAltura ? sliderAltura.value : 170),
+                peso: parseFloat(sliderPeso ? sliderPeso.value : 70)
+            };
+
+            // Enviamos los datos directamente a MariaDB a través de Node.js
+            fetch('http://localhost:5234/api/tickets', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payloadTicket)
+            })
+            .then(res => {
+                if (!res.ok) throw new Error('Error al conectar con la base de datos');
+                return res.json();
+            })
+            .then(data => {
+                console.log('Ticket guardado con éxito:', data);
+                alert(`¡Ticket guardado en MariaDB! ID de Compra: ${data.ticketId}`);
+            })
+            .catch(error => {
+                console.error('Error en el servidor de tickets:', error);
+                alert('Conexión fallida con el servidor de tickets. Verifica que server.js esté encendido.');
+            });
+        });
+    }
+});
 });

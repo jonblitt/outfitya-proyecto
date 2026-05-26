@@ -677,7 +677,7 @@ const ticketAlert = document.getElementById('ticket-success-alert');
 let usuarioEmailGlobal = "";
 
 // 1. Cargar datos del perfil automáticamente al abrir la página
-fetch('http://localhost:3000/api/perfil')
+fetch('http://localhost:5234/api/perfil')
     .then(res => res.json())
     .then(data => {
         perfNombre.textContent = data.nombre;
@@ -710,7 +710,7 @@ btnGenerarTicket.addEventListener('click', () => {
     };
 
     // Envío por fetch a la tabla 'tickets_compra'
-    fetch('http://localhost:3000/api/tickets', {
+    fetch('http://localhost:5234/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadTicket)
@@ -777,7 +777,7 @@ btnGenerarTicket.addEventListener('click', () => {
         };
 
         // Desparar la petición HTTP POST a la API
-        fetch('http://localhost:5024/api/biometria', {
+        fetch('http://localhost:5234/api/biometria', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -837,8 +837,10 @@ btnGenerarTicket.addEventListener('click', () => {
     appendChatBubble(textMessage, 'user');
     userChatInput.value = "";
 
+    
+
     // Petición HTTP al backend del chatbot
-    fetch('http://localhost:5024/api/chatbot', {
+    fetch('http://localhost:5234/api/chatbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mensaje: textMessage })
