@@ -1,185 +1,265 @@
+// server.js - Outfiya Backend
 const express = require('express');
-const mariadb = require('mariadb');
 const cors = require('cors');
+const path = require('path');
+const crypto = require('crypto');
+const multer = require('multer');
+const db = require('./db');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = process.env.PORT || 3000;
+const SESION_DURACION_MS = 8 * 60 * 60 * 1000;
+const sesiones = new Map();
 
-// Configuración de la conexión a MariaDB basada en tu script
-const pool = mariadb.createPool({
-     host: 'localhost', 
-     user: 'root',              
-     password: '',   // Vacío si usas XAMPP por defecto
-     database: 'outfitya_db',   
-     connectionLimit: 5
+// Configuración de multer para subir imágenes
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, 'uploads'));
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname.replace(/\s+/g, '_'));
+  }
 });
+const upload = multer({ storage });
 
-// ============================================================
-// ENDPOINT: Cargar Perfil de Usuario Real
-// ============================================================
-app.get('/api/perfil', async (req, res) => {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        // Consultamos un usuario real de tu tabla 'usuarios' junto con el nombre de su rol
-        const query = `
-            SELECT u.id_usuario, u.nombre, u.apellido, u.correo, r.nombre_rol 
-            FROM usuarios u 
-            INNER JOIN roles r ON u.id_rol = r.id_rol 
-            WHERE u.correo = 'juan@correo.com' LIMIT 1`; // Simulamos al usuario logueado Juan
-        
-        const rows = await conn.query(query);
-        if (rows.length > 0) {
-            res.json(rows[0]);
-        } else {
-            res.status(404).json({ error: "No se encontraron usuarios en la tabla." });
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    } finally {
-        if (conn) conn.end();
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname)));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+const ROLES_PERSONAL = ['ADMINISTRADOR', 'PLANTA', 'PUNTO'];
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  return `scrypt$${salt}$${derived}`;
+}
+
+function verifyPassword(password, stored) {
+  if (typeof stored !== 'string') return false;
+  if (!stored.startsWith('scrypt$')) return String(password) === stored;
+  const parts = stored.split('$');
+  if (parts.length !== 3) return false;
+  try {
+    const actual = crypto.scryptSync(String(password), parts[1], 64);
+    const expected = Buffer.from(parts[2], 'hex');
+    return expected.length === actual.length && crypto.timingSafeEqual(actual, expected);
+  } catch (_) {
+    return false;
+  }
+}
+
+function nombreYApellido(nombreCompleto) {
+  const piezas = String(nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
+  return { nombre: piezas.shift() || '', apellido: piezas.join(' ') };
+}
+
+function requireWorker(req, res, next) {
+  (async () => {
+    const auth = String(req.headers.authorization || '');
+    const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+    const sesion = sesiones.get(token);
+    if (!token || !sesion || sesion.expiresAt < Date.now()) {
+      if (token) sesiones.delete(token);
+      return res.status(401).json({ error: 'Sesión vencida. Inicia sesión de nuevo.' });
     }
-});
 
-// ============================================================
-// ENDPOINT: Léxico del Chatbot de Asistente Virtual (RF13)
-// ============================================================
-app.post('/api/chatbot', async (req, res) => {
-    const { mensaje, id_usuario } = req.body;
-    let conn;
-    
-    try {
-        conn = await pool.getConnection();
-        const textoUsuario = mensaje.toLowerCase();
-        let respuestaBot = "";
+    const [rows] = await db.execute(`
+      SELECT U.id_usuario, U.nombre, U.apellido, U.correo, U.activo, R.nombre_rol AS role
+      FROM usuarios U JOIN roles R ON R.id_rol = U.id_rol
+      WHERE U.id_usuario = ? LIMIT 1
+    `, [sesion.id_usuario]);
 
-        // Lógica de respuesta automatizada por palabras clave
-        if (textoUsuario.includes('talla') || textoUsuario.includes('medida')) {
-            respuestaBot = "Tu avatar 3D procesa estaturas entre 140cm y 210cm para calcular tu talla ideal.";
-        } else if (textoUsuario.includes('pago') || textoUsuario.includes('pse') || textoUsuario.includes('paypal')) {
-            respuestaBot = "Soportamos pasarelas de pago seguras como PayPal, PayU, MercadoPago y PSE de forma encriptada.";
-        } else if (textoUsuario.includes('creadores') || textoUsuario.includes('autores')) {
-            respuestaBot = "Outfitya fue desarrollado por los tecnólogos Juan Gómez, Gino Giacometto, Julia López y Elvira Loaiza.";
-        } else {
-            respuestaBot = "Hola, soy el asistente virtual de Outfitya. ¿Deseas consultar sobre el probador 3D o los métodos de pago?";
-        }
-
-        // PERSISTENCIA: Registramos la interacción en tu tabla oficial 'mensajes_asistente'
-        // Primero aseguramos una sesión activa en 'sesiones_asistente' (id_sesion = 1 para pruebas locales)
-        const checkSesion = await conn.query("SELECT id_sesion FROM sesiones_asistente LIMIT 1");
-        let idSesion = checkSesion.length > 0 ? checkSesion[0].id_sesion : null;
-
-        if (!idSesion) {
-            const createSesion = await conn.query("INSERT INTO sesiones_asistente (id_usuario, canal) VALUES (?, 'WEB')", [id_usuario || 2]);
-            idSesion = Number(createSesion.insertId);
-        }
-
-        // Guardamos el mensaje del usuario y del bot
-        await conn.query("INSERT INTO mensajes_asistente (id_sesion, emisor, contenido) VALUES (?, 'USER', ?)", [idSesion, mensaje]);
-        await conn.query("INSERT INTO mensajes_asistente (id_sesion, emisor, contenido) VALUES (?, 'BOT', ?)", [idSesion, respuestaBot]);
-
-        res.json({ respuesta: respuestaBot });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Error en el procesamiento del mensaje en DB." });
-    } finally {
-        if (conn) conn.end();
+    const user = rows[0];
+    if (!user || Number(user.activo) !== 1 || !ROLES_PERSONAL.includes(user.role)) {
+      sesiones.delete(token);
+      return res.status(403).json({ error: 'Acceso no autorizado.' });
     }
-});
+    req.worker = { id_usuario: user.id_usuario, nombre: user.nombre, apellido: user.apellido, email: user.correo, role: user.role };
+    return next();
+  })().catch(err => res.status(500).json({ error: 'Error al validar sesión.' }));
+}
 
-app.listen(5234, () => {
-    console.log("Servidor de Outfitya corriendo en http://localhost:5234");
-});
-app.post('/api/chatbot', async (req, res) => {
-    const { mensaje } = req.body;
-    let conn;
-    
-    try {
-        conn = await pool.getConnection();
-        const textoUsuario = mensaje.toLowerCase();
-        
-        // Consultamos si existe alguna palabra clave en el mensaje enviado
-        const query = "SELECT respuesta FROM chatbot_lexico WHERE ? LIKE CONCAT('%', palabra_clave, '%') LIMIT 1";
-        const rows = await conn.query(query, [textoUsuario]);
-        
-        if (rows.length > 0) {
-            res.json({ respuesta: rows[0].respuesta });
-        } else {
-            res.json({ respuesta: "Lo siento, aún estoy aprendiendo sobre ese tema. ¿Podrías intentar con palabras como: envíos, devoluciones o seguridad?" });
-        }
-    } catch (err) {
-        res.status(500).json({ error: "Error en el servidor del chatbot" });
-    } finally {
-        if (conn) conn.end();
+function requireRoles(...roles) {
+  return (req, res, next) => {
+    if (!req.worker || !roles.includes(req.worker.role)) {
+      return res.status(403).json({ error: 'Permisos insuficientes.' });
     }
-});
-// Ejemplo conceptual usando una API de procesamiento de lenguaje natural
-app.post('/api/chatbot-ia', async (req, res) => {
-    const { mensaje } = req.body;
+    return next();
+  };
+}
 
-    // Aquí definirías las reglas estrictas de su personalidad ("Prompt Engineering")
-    const contextoDePersonalidad = `
-      Eres Outfitya AI, el asistente virtual oficial de la plataforma de moda Outfitya.
-      Fuiste creado por los tecnólogos Juan Gómez, Gino Giacometto, Julia López y Elvira Loaiza de la ficha 3186626 del SENA.
-      Solo debes responder preguntas asociadas a: tallas de ropa, el probador biométrico 3D, envíos y soporte técnico de la página.
-      Si te preguntan cosas ajenas a la moda o al software de Outfitya, rechaza responder amablemente.
-      Tu tono debe ser profesional, vanguardista y muy educado.
-    `;
-
-    // Código para enviar el (contextoDePersonalidad + mensaje) a la API elegida...
-    // const response = await api.generateText({ prompt: contextoDePersonalidad + mensaje });
-    
-    // res.json({ respuesta: response.text });
+// Subir imagen
+app.post('/api/upload', upload.single('imagen'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo.' });
+  res.json({ success: true, url: `http://localhost:3000/uploads/${req.file.filename}` });
 });
 
-app.get('/api/perfil', async (req, res) => {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        // Traemos el primer perfil disponible para la simulación
-        const query = "SELECT nombre, email, membresia, ciudad FROM usuarios_perfil LIMIT 1";
-        const rows = await conn.query(query);
-        if (rows.length > 0) {
-            res.json(rows[0]);
-        } else {
-            res.status(404).json({ error: "Perfil no encontrado" });
-        }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    } finally {
-        if (conn) conn.end();
+// Login
+app.post('/api/trabajadores/login', async (req, res) => {
+  const correo = String(req.body?.correo || '').trim().toLowerCase();
+  const contrasena = String(req.body?.contrasena || '');
+  try {
+    const [rows] = await db.execute(`
+      SELECT U.id_usuario, U.nombre, U.apellido, U.correo, U.contrasena, U.activo, R.nombre_rol AS role
+      FROM usuarios U JOIN roles R ON R.id_rol = U.id_rol
+      WHERE LOWER(U.correo) = ? LIMIT 1
+    `, [correo]);
+    const user = rows[0];
+    if (!user || Number(user.activo) !== 1 || !ROLES_PERSONAL.includes(user.role) || !verifyPassword(contrasena, user.contrasena)) {
+      return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
+    const token = crypto.randomBytes(32).toString('hex');
+    sesiones.set(token, { id_usuario: user.id_usuario, expiresAt: Date.now() + SESION_DURACION_MS });
+    res.json({ token, usuario: { id_usuario: user.id_usuario, nombre: user.nombre, apellido: user.apellido, email: user.correo, role: user.role } });
+  } catch (e) {
+    res.status(500).json({ error: 'Error de servidor.' });
+  }
 });
 
-// 2. Endpoint para crear un nuevo Ticket de Compra Integral
-app.post('/api/tickets', async (req, res) => {
-    const { email, prenda, altura, peso } = req.body;
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        const query = `INSERT INTO tickets_compra (usuario_email, prenda_seleccionada, altura_biometrica, peso_biometrico) 
-                       VALUES (?, ?, ?, ?)`;
-        const result = await conn.query(query, [email, prenda, altura, peso]);
-        
-        // Retornamos el ID del ticket generado automáticamente por MariaDB
-        res.status(201).json({ 
-            status: "success", 
-            message: "Ticket de compra creado con éxito",
-            ticketId: Number(result.insertId)
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    } finally {
-        if (conn) conn.end();
+app.get('/api/trabajadores/sesion', requireWorker, (req, res) => res.json({ usuario: req.worker }));
+
+app.get('/api/trabajadores', requireWorker, requireRoles('ADMINISTRADOR'), async (req, res) => {
+  const [rows] = await db.execute(`
+    SELECT U.id_usuario, U.nombre, U.apellido, U.correo, U.activo, R.nombre_rol AS role
+    FROM usuarios U JOIN roles R ON R.id_rol = U.id_rol
+    WHERE R.nombre_rol IN ('ADMINISTRADOR', 'PLANTA', 'PUNTO')
+  `);
+  res.json(rows);
+});
+
+// Obtener inventario
+app.get('/api/trabajadores/inventario', requireWorker, requireRoles(...ROLES_PERSONAL), async (req, res) => {
+  try {
+    const [rows] = await db.execute(`
+      SELECT I.id_inventario AS id, I.id_inventario, I.id_producto,
+             P.nombre AS producto_nombre, I.talla, I.color, I.stock,
+             COALESCE(I.sku, CONCAT('OUT-', I.id_producto, '-', I.talla, '-', I.color)) AS sku
+      FROM inventario_producto I
+      JOIN productos P ON P.id_producto = I.id_producto
+      WHERE P.activo = 1
+      ORDER BY P.id_producto DESC, I.talla
+    `);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al consultar inventario.' });
+  }
+});
+
+// MODIFICAR STOCK (ESTE ENDPOINT FALTABA Y CAUSABA EL ERROR 404)
+app.patch('/api/trabajadores/inventario/:id', requireWorker, requireRoles('ADMINISTRADOR', 'PLANTA'), async (req, res) => {
+  const idInventario = Number(req.params.id);
+  const { delta, stock, precio } = req.body;
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // 1. Actualizar stock si se envió
+    if (stock !== undefined) {
+      await conn.execute('UPDATE inventario_producto SET stock = ? WHERE id_inventario = ?', [Number(stock), idInventario]);
+    } else if (delta !== undefined) {
+      await conn.execute('UPDATE inventario_producto SET stock = GREATEST(0, stock + ?) WHERE id_inventario = ?', [Number(delta), idInventario]);
     }
+
+    // 2. Actualizar precio si se envió (afecta a la tabla productos)
+    if (precio !== undefined && !isNaN(Number(precio))) {
+      await conn.execute(`
+        UPDATE productos P 
+        JOIN inventario_producto I ON P.id_producto = I.id_producto 
+        SET P.precio = ? 
+        WHERE I.id_inventario = ?
+      `, [Number(precio), idInventario]);
+    }
+
+    await conn.commit();
+    res.json({ success: true, mensaje: 'Modificaciones guardadas en MariaDB.' });
+  } catch (e) {
+    if (conn) await conn.rollback();
+    res.status(500).json({ error: 'Error al actualizar: ' + e.message });
+  } finally {
+    if (conn) conn.release();
+  }
 });
 
-// ============================================================
-// INICIALIZACIÓN DEL SERVIDOR
-// ============================================================
-const PORT = 5234; // El mismo puerto que usas en el frontend
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor de Outfitya corriendo con éxito en http://localhost:${PORT}`);
+// Insertar Producto
+app.post('/api/trabajadores/productos', requireWorker, requireRoles('ADMINISTRADOR', 'PLANTA'), async (req, res) => {
+  const b = req.body || {};
+  const nombre = String(b.nombre || '').trim();
+  const descripcion = String(b.descripcion || '').trim().slice(0, 1000);
+  const material = String(b.material || 'Algodón').trim().slice(0, 255);
+  const categoria = String(b.categoria || 'General').trim();
+  const piso = String(b.piso_termico || 'PÁRAMO').trim().toUpperCase();
+  const genero = String(b.genero || 'UNISEX').trim().toUpperCase();
+  const talla = String(b.talla || 'M').trim().toUpperCase();
+  const color = String(b.color || 'Negro').trim();
+  const imagenUrl = String(b.imagen_url || '').trim();
+  const precio = Number(b.precio);
+  const stock = Number(b.stock);
+
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    let idCategoria = 1;
+    const [cats] = await conn.execute('SELECT id_categoria FROM categorias WHERE LOWER(nombre) = LOWER(?) LIMIT 1', [categoria]);
+    if (cats.length) {
+      idCategoria = cats[0].id_categoria;
+    } else {
+      const [catRes] = await conn.execute('INSERT INTO categorias (nombre, descripcion, genero, piso_termico) VALUES (?, ?, ?, ?)', [categoria, categoria, genero, piso]);
+      idCategoria = catRes.insertId;
+    }
+
+    const [prodRes] = await conn.execute(`
+      INSERT INTO productos (id_categoria, id_coleccion, nombre, descripcion, precio, material, piso_termico, activo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    `, [idCategoria, b.id_coleccion ? Number(b.id_coleccion) : null, nombre, descripcion, precio, material, piso]);
+    const idProducto = prodRes.insertId;
+
+    const sku = b.sku || `OUT-${idProducto}-${talla}-${color.replace(/\s+/g, '')}`.toUpperCase();
+    await conn.execute('INSERT INTO inventario_producto (id_producto, talla, color, stock, sku) VALUES (?, ?, ?, ?, ?)', [idProducto, talla, color, stock || 0, sku]);
+
+    if (imagenUrl) {
+      await conn.execute("INSERT INTO imagenes_producto (id_producto, url_imagen, tipo, orden) VALUES (?, ?, 'FOTO', 1)", [idProducto, imagenUrl]);
+    }
+
+    await conn.commit();
+    res.status(201).json({ success: true, id_producto: idProducto });
+  } catch (e) {
+    if (conn) await conn.rollback();
+    res.status(500).json({ error: e.message });
+  } finally {
+    if (conn) conn.release();
+  }
 });
-password: 'SU_CONTRASENA_LOCAL'
+
+// Catálogo público
+app.get('/api/productos', async (req, res) => {
+  try {
+    const [rows] = await db.execute(`
+      SELECT P.*, C.nombre AS categoria_nombre,
+             COALESCE(I.url_imagen, 'http://localhost:3000/uploads/Camiseta Oversize Violet.jpg') AS url_imagen
+      FROM productos P
+      JOIN categorias C ON C.id_categoria = P.id_categoria
+      LEFT JOIN imagenes_producto I ON P.id_producto = I.id_producto AND I.tipo = 'FOTO' AND I.orden = 1
+      WHERE P.activo = 1
+      ORDER BY P.id_producto DESC
+    `);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'Error al consultar productos' });
+  }
+});
+
+app.get('/api/colecciones', async (req, res) => {
+  const [rows] = await db.query('SELECT * FROM colecciones WHERE activa = 1 ORDER BY id_coleccion DESC');
+  res.json(rows);
+});
+
+app.listen(PORT, () => console.log(`Backend corriendo en http://127.0.0.1:${PORT}`));

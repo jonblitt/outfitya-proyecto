@@ -1,25 +1,90 @@
-# 👔 Outfitya - Plataforma de Ajuste Biométrico
+Outfiya
+Plataforma e-commerce con probador biométrico 3D y persistencia en MariaDB.
 
-Este proyecto corresponde al entregable oficial de la **Evidencia GA6-220501096-AA4-EV03** para la tecnología en **Análisis y Desarrollo de Software (ADSO)** - Ficha 3186626.
+Node
+Express
+MariaDB
+License
 
-## 🚀 Características del Proyecto
-- **Probador Biométrico 3D:** Simulación adaptativa en tiempo real basada en parámetros de altura y peso.
-- **Asistente Virtual con IA:** Widget de chatbot flotante integrado con el ecosistema backend para resolver dudas del usuario.
-- **Persistencia de Datos:** Conexión e inyección de datos estructurados directamente en un servidor local MariaDB.
+Stack: HTML5 / CSS3 / Vanilla JS (desacoplado) + Node.js / Express + MariaDB (mysql2/promise)
+Puerto: 5234
+Estado: Conexión a BD verificada y guardando tickets (tickets_compra).
 
-## 🛠️ Tecnologías Utilizadas
-- **Front-End:** HTML5, CSS3, JavaScript (Vanilla)
-- **Back-End:** Node.js (Express framework)
-- **Base de Datos:** MariaDB / MySQL (mediante conector nativo `mariadb`)
-- **Seguridad:** Middleware `cors` para intercambio de recursos de origen cruzado
+Características
+Probador biométrico: Avatar que escala en tiempo real según altura (140-210cm) y peso (40-130kg). Cálculo de talla por IMC.
+Catálogo por pisos térmicos: Cálido, Templado, Frío, Páramo. Filtros por piso, género y talla.
+Carrito 4 pasos: Confirmación → Método de pago → Revisión → Ticket.
+Chatbot: Respuestas desde tabla chatbot_lexico con fallbacks.
+Separación de responsabilidades: Sin onclick en HTML. Todo evento vía addEventListener en outfiya.js.
+Tecnologías
+Frontend: HTML5, CSS3, JavaScript (SPA)
+Backend: Node.js, Express 5.2.1, CORS
+BD: MariaDB 12.3 / MySQL con mysql2/promise Pool
+Tools: HeidiSQL, XAMPP/Laragon
 
-## 💻 Instrucciones de Instalación Local
+Estructura
+.
+├── outfiya.html      # SPA 7 vistas
+├── outfiya.css       # Estilos
+├── outfiya.js        # Lógica desacoplada - API_BASE http://127.0.0.1:5000/api
+├── server.js         # Backend Express puerto 5234
+├── db.js             # Pool MariaDB
+├── outfiya_mb.sql    # Schema 13 tablas
+├── package.json
+└── README.md
+Instalación
+1. Base de datos
+mysql -u root -p < outfiya_mb.sql
+# o importar outfiya_mb.sql desde HeidiSQL/phpMyAdmin
+BD: outfitya_db - 13 tablas: usuarios, productos, tickets_compra, chatbot_lexico, etc.
 
-Para que el equipo de desarrollo pueda ejecutar este proyecto localmente, siga estos pasos:
+2. Backend
+npm install
+node server.js
+Servidor en:
 
-1. **Clonar el repositorio** en su máquina local.
-2. Asegurarse de tener instalado **Node.js** (Versión LTS >= 20.0.0).
-3. Iniciar su servidor local de base de datos (**XAMPP** o **Laragon**) y montar el script de la base de datos `outfitya_db`.
-4. Abrir una terminal en la raíz del backend y ejecutar el comando para instalar las dependencias:
-   ```bash
-   npm install
+http://localhost:5000
+Logs esperados:
+
+✅ Conexión establecida con éxito a MariaDB (outfitya_db).
+🚀 Servidor backend corriendo en http://localhost:5000
+3. Frontend
+Abrir outfiya.html con Live Server o navegador. Hace fetch a http://127.0.0.1:5500/outfiya.html, con fallback a mock data si BD offline.
+
+Configuración
+Variables de entorno opcionales (.env):
+
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=outfitya_db
+DB_PORT=3306
+PORT=5234
+API
+Método	Endpoint	Descripción
+GET	/api/productos?piso=CÁLIDO&genero=UNISEX	Listar productos
+GET	/api/productos/:id	Detalle
+POST	/api/chatbot	{ mensaje } → respuesta
+POST	/api/tickets	{ email, prenda, altura, peso, id_usuario } → INSERT
+Ejemplo POST /api/tickets:
+
+{
+  "email": "juan@correo.com",
+  "prenda": "Camiseta Oversize Violet",
+  "altura": 189,
+  "peso": 85,
+  "id_usuario": 1
+}
+Respuesta:
+
+{ "success": true, "ticketId": 1 }
+Verificación en BD:
+
+SELECT * FROM tickets_compra;
+Probador - Lógica
+scaleY = altura / 170
+scaleX = 1 + (peso - 65) / 110
+IMC = peso / (altura/100)^2
+Talla = S (<19), M (<25), L (<29), XL (>=29)
+Licencia
+MIT - Proyecto académico SENA ADSO 3186626.
