@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outfiya | Portal de Trabajadores</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+    :root { --surface:#f6f6f8; --ink:#14182b; --accent:#c8553d; --line:#e4e4e7; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--surface); font-family:Inter,system-ui,sans-serif; color:var(--ink); }
+    input,select,textarea,button { font:inherit; color:#18181b; }
+    button { cursor:pointer; }
+    .field-label { display:block; font-size:11px; font-weight:700; letter-spacing:.04em; color:#52525b; margin-bottom:5px; }
+    .field-control { width:100%; border:1px solid #d4d4d8; border-radius:9px; padding:10px 12px; font-size:13px; background:white; outline:none; }
+    .field-control:focus { border-color:#14182b; box-shadow:0 0 0 3px rgba(20,24,43,.08); }
+    .btn-primary { background:#14182b; color:#fff; border-radius:10px; padding:10px 14px; font-size:12px; font-weight:700; border:1px solid #14182b; }
+    .btn-primary:hover { background:#282e49; }
+    .btn-accent { background:#c8553d; color:#fff; border:1px solid #c8553d; }
+    .btn-accent:hover { background:#b84c35; }
+    .btn-secondary { background:#fff; border:1px solid #d4d4d8; color:#27272a; border-radius:9px; padding:8px 11px; font-size:12px; font-weight:600; }
+    .btn-secondary:hover { background:#fafafa; }
+    .mono { font-family:'JetBrains Mono',monospace; }
+    .modal-backdrop { position:fixed; inset:0; z-index:50; background:rgba(10,12,24,.54); display:flex; align-items:center; justify-content:center; padding:16px; overflow-y:auto; }
+    .modal-card { width:100%; max-width:720px; max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border-radius:18px; padding:24px; box-shadow:0 25px 70px rgba(0,0,0,.24); }
+    .toast { position:fixed; z-index:80; bottom:20px; right:20px; max-width:min(90vw,520px); border-radius:12px; background:#14182b; color:white; padding:13px 17px; box-shadow:0 12px 35px #14182b35; font-size:13px; }
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+    const API_BASE = `http://${window.location.hostname}:3000/api`;
+
+    async function apiRequest(path, options = {}) {
+      const { token, body, headers = {}, ...fetchOptions } = options;
+      const requestHeaders = { ...headers };
+      if (body !== undefined && !(body instanceof FormData)) requestHeaders['Content-Type'] = 'application/json';
+      if (token) requestHeaders.Authorization = `Bearer ${token}`;
+      let response;
+      try {
+        response = await fetch(`${API_BASE}${path}`, {
+          ...fetchOptions,
+          headers: requestHeaders,
+          body: body instanceof FormData ? body : (body === undefined ? undefined : JSON.stringify(body))
+        });
+      } catch (_) {
+        throw new Error('No hay conexión con el servidor Outfiya.');
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `La solicitud falló (HTTP ${response.status}).`);
+      return data;
+    }
+
+    const fmt = value => Number(value || 0).toLocaleString('es-CO');
+    const roleLabel = role => ({ ADMINISTRADOR: 'Administrador', PLANTA: 'Planta', PUNTO: 'Punto de venta' }[role] || role);
+    const stockStatus = stock => Number(stock) < 3 ? { label:'BAJO', color:'#b91c1c', bg:'#fef2f2' } : Number(stock) <= 10 ? { label:'MEDIO', color:'#b45309', bg:'#fffbeb' } : { label:'ALTO', color:'#15803d', bg:'#f0fdf4' };
+
+    function AppTrabajadores() {
+      const [usuario, setUsuario] = useState(null);
+      const [token, setToken] = useState('');
+      const [iniciando, setIniciando] = useState(true);
+      const [emailInput, setEmailInput] = useState('');
+      const [passInput, setPassInput] = useState('');
+      const [errorLogin, setErrorLogin] = useState('');
+      const [cargando, setCargando] = useState(false);
+      const [mensaje, setMensaje] = useState(null);
+
+      const [productos, setProductos] = useState([]);
+      const [colecciones, setColecciones] = useState([]);
+      const [inventario, setInventario] = useState([]);
+      const [trabajadores, setTrabajadores] = useState([]);
+      const [busqueda, setBusqueda] = useState('');
+      const [filtroTalla, setFiltroTalla] = useState('TODAS');
+
+      // MODALES
+      const [modalProducto, setModalProducto] = useState(false);
+      const [modalColeccion, setModalColeccion] = useState(false);
+      const [modalTrabajador, setModalTrabajador] = useState(false);
+      const [modalTrabajadores, setModalTrabajadores] = useState(false);
+      const [modalEditarStock, setModalEditarStock] = useState(null);
+      const [modalChat, setModalChat] = useState(false);
+      const [guardando, setGuardando] = useState(false);
+
+      // FORMULARIOS
+      const [formProducto, setFormProducto] = useState({
+        nombre: '', categoria: 'Chaquetas', descripcion: '', precio: '', material: 'Algodón / Poliéster',
+        piso_termico: 'PÁRAMO', genero: 'UNISEX', id_coleccion: '', imagen_url: '', talla: 'M', color: 'Negro', stock: '5', sku: ''
+      });
+      const [archivoImagen, setArchivoImagen] = useState(null);
+      const [formColeccion, setFormColeccion] = useState({ nombre: '', descripcion: '', temporada: 'Otoño / Invierno', anio: String(new Date().getFullYear()) });
+      const [formTrabajador, setFormTrabajador] = useState({ nombre: '', correo: '', role: 'PLANTA', contrasena: '' });
+      const [stockEditado, setStockEditado] = useState('0');
+const [precioEditado, setPrecioEditado] = useState('0');
+
+      // CHAT CANAL PÁRAMO
+      const [chatMessages, setChatMessages] = useState([
+        { id: 1, tienda: 'Punto Bosa', texto: '¿Alguien tiene stock de Chaqueta Páramo M en Negro?', hora: '10:15' },
+        { id: 2, tienda: 'Punto Centro', texto: 'Tenemos 2 unidades disponibles para traslado.', hora: '10:18' }
+      ]);
+      const [chatInput, setChatInput] = useState('');
+
+      const notificar = (texto, tipo = 'ok') => {
+        setMensaje({ texto, tipo });
+        window.setTimeout(() => setMensaje(null), 4200);
+      };
+
+      const cargarDatos = async (authToken, role) => {
+        try {
+          const [inventarioDb, productosDb, coleccionesDb] = await Promise.all([
+            apiRequest('/trabajadores/inventario', { token: authToken }),
+            apiRequest('/productos'),
+            apiRequest('/colecciones')
+          ]);
+          setInventario(inventarioDb);
+          setProductos(productosDb);
+          setColecciones(coleccionesDb);
+          if (role === 'ADMINISTRADOR') {
+            const lista = await apiRequest('/trabajadores', { token: authToken });
+            setTrabajadores(lista);
+          }
+        } catch (e) {
+          notificar(e.message, 'error');
+        }
+      };
+
+      useEffect(() => {
+        const tokenGuardado = localStorage.getItem('outfiya_worker_token');
+        if (!tokenGuardado) { setIniciando(false); return; }
+        (async () => {
+          try {
+            const sesion = await apiRequest('/trabajadores/sesion', { token: tokenGuardado });
+            setToken(tokenGuardado);
+            setUsuario(sesion.usuario);
+            await cargarDatos(tokenGuardado, sesion.usuario.role);
+          } catch (e) {
+            localStorage.removeItem('outfiya_worker_token');
+            setUsuario(null);
+            setToken('');
+          } finally {
+            setIniciando(false);
+          }
+        })();
+      }, []);
+
+      const manejarLogin = async (e) => {
+        e.preventDefault(); setErrorLogin(''); setCargando(true);
+        try {
+          const data = await apiRequest('/trabajadores/login', {
+            method: 'POST', body: { correo: emailInput.trim(), contrasena: passInput }
+          });
+          localStorage.setItem('outfiya_worker_token', data.token);
+          setToken(data.token); setUsuario(data.usuario);
+          await cargarDatos(data.token, data.usuario.role);
+          notificar(`Sesión iniciada como ${data.usuario.nombre}.`);
+        } catch (e2) {
+          setErrorLogin(e2.message);
+        } finally { setCargando(false); }
+      };
+
+      const salir = () => {
+        localStorage.removeItem('outfiya_worker_token');
+        setToken(''); setUsuario(null);
+        notificar('Sesión cerrada correctamente.');
+      };
+
+      const inventarioFiltrado = useMemo(() => inventario.filter(item => {
+        const q = busqueda.trim().toLowerCase();
+        const matchTexto = !q || String(item.producto_nombre || '').toLowerCase().includes(q) || String(item.sku || '').toLowerCase().includes(q);
+        return matchTexto && (filtroTalla === 'TODAS' || item.talla === filtroTalla);
+      }), [inventario, busqueda, filtroTalla]);
+
+      const estadisticas = useMemo(() => ({
+        referencias: inventario.length,
+        unidades: inventario.reduce((sum, item) => sum + Number(item.stock || 0), 0),
+        bajo: inventario.filter(item => Number(item.stock) < 3).length,
+        medio: inventario.filter(item => Number(item.stock) >= 3 && Number(item.stock) <= 10).length,
+        alto: inventario.filter(item => Number(item.stock) > 10).length
+      }), [inventario]);
+
+      // AÑADIR PRENDA
+      const crearProducto = async (e) => {
+        e.preventDefault();
+        setGuardando(true);
+        try {
+          let urlFinal = formProducto.imagen_url;
+
+          if (archivoImagen) {
+            const formData = new FormData();
+            formData.append('imagen', archivoImagen);
+            const resUpload = await fetch(`${API_BASE}/upload`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData
+            });
+            const dataUpload = await resUpload.json();
+            if (!resUpload.ok) throw new Error(dataUpload.error || 'Error al subir imagen.');
+            urlFinal = dataUpload.url;
+          }
+
+          const body = {
+            ...formProducto,
+            imagen_url: urlFinal,
+            precio: Number(formProducto.precio),
+            stock: Number(formProducto.stock),
+            id_coleccion: formProducto.id_coleccion ? Number(formProducto.id_coleccion) : null
+          };
+
+          await apiRequest('/trabajadores/productos', { method: 'POST', token, body });
+          setModalProducto(false);
+          await cargarDatos(token, usuario.role);
+          notificar('¡Prenda guardada en MariaDB!');
+          setFormProducto({
+            nombre: '', categoria: 'Chaquetas', descripcion: '', precio: '', material: 'Algodón / Poliéster',
+            piso_termico: 'PÁRAMO', genero: 'UNISEX', id_coleccion: '', imagen_url: '', talla: 'M', color: 'Negro', stock: '5', sku: ''
+          });
+          setArchivoImagen(null);
+        } catch (err) {
+          notificar(err.message, 'error');
+        } finally {
+          setGuardando(false);
+        }
+      };
+
+      // CREAR COLECCIÓN
+      const crearColeccion = async (e) => {
+        e.preventDefault();
+        try {
+          await apiRequest('/trabajadores/colecciones', { method: 'POST', token, body: { ...formColeccion, anio: Number(formColeccion.anio) } });
+          setModalColeccion(false);
+          await cargarDatos(token, usuario.role);
+          notificar('Colección creada correctamente.');
+        } catch (err) { notificar(err.message, 'error'); }
+      };
+
+      // CREAR TRABAJADOR
+      const crearTrabajador = async (e) => {
+        e.preventDefault();
+        try {
+          await apiRequest('/trabajadores', { method: 'POST', token, body: formTrabajador });
+          setModalTrabajador(false);
+          const lista = await apiRequest('/trabajadores', { token });
+          setTrabajadores(lista);
+          notificar('Trabajador creado exitosamente.');
+          setFormTrabajador({ nombre: '', correo: '', role: 'PLANTA', contrasena: '' });
+        } catch (err) { notificar(err.message, 'error'); }
+      };
+
+      // EDITAR STOCK
+      const ajusteStock = async (item, delta) => {
+        try {
+          await apiRequest(`/trabajadores/inventario/${item.id}`, { method: 'PATCH', token, body: { delta } });
+          await cargarDatos(token, usuario.role);
+          notificar('Stock actualizado.');
+        } catch (e) { notificar(e.message, 'error'); }
+      };
+
+      const guardarStockManual = async (e) => {
+        e.preventDefault();
+        if (!modalEditarStock) return;
+        try {
+          await apiRequest(`/trabajadores/inventario/${modalEditarStock.id}`, { method: 'PATCH', token, body: { stock: Number(stockEditado) } });
+          setModalEditarStock(null);
+          await cargarDatos(token, usuario.role);
+          notificar('Stock guardado.');
+        } catch (e) { notificar(e.message, 'error'); }
+      };
+
+      if (iniciando) return <div className="min-h-screen grid place-items-center p-6"><div className="bg-white rounded-2xl p-6 shadow-sm border text-sm">Verificando sesión...</div></div>;
+
+      if (!usuario) return (
+        <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-[#f6f6f8]">
+          <div className="w-full max-w-[450px] bg-white rounded-[22px] border border-zinc-200 p-8 shadow-xl">
+            <h1 className="text-lg font-bold text-[#14182b] mb-2">Portal de Trabajadores</h1>
+            <p className="text-sm text-zinc-600 mb-5">Ingresa con tus credenciales de Outfiya.</p>
+            <form onSubmit={manejarLogin} className="grid gap-4">
+              <div><label className="field-label">CORREO CORPORATIVO</label><input className="field-control" type="email" required value={emailInput} onChange={e=>setEmailInput(e.target.value)} placeholder="admin@outfiya.com" /></div>
+              <div><label className="field-label">CONTRASEÑA</label><input className="field-control" type="password" required value={passInput} onChange={e=>setPassInput(e.target.value)} placeholder="••••••••" /></div>
+              {errorLogin && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs">{errorLogin}</div>}
+              <button className="btn-primary mt-1 h-11" type="submit" disabled={cargando}>{cargando ? 'Conectando...' : 'Ingresar al sistema →'}</button>
+            </form>
+          </div>
+          {mensaje && <div className="toast">{mensaje.texto}</div>}
+        </div>
+      );
+
+      const esAdmin = usuario.role === 'ADMINISTRADOR';
+      const puedeInventario = esAdmin || usuario.role === 'PLANTA';
+
+      return (
+        <div className="min-h-screen pb-12 bg-[#f6f6f8] text-zinc-900">
+          <header className="sticky top-0 z-30 bg-[#14182b] text-white px-6 h-[68px] flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-lg bg-[#c8553d] flex items-center justify-center font-extrabold">O</div><div><div className="font-bold text-sm">OUTFIYA WORKSPACE</div><div className="text-[10px] text-white/60">{usuario.nombre} ({roleLabel(usuario.role)})</div></div></div>
+            <button className="rounded-full px-4 py-2 bg-white/10 hover:bg-white/20 text-xs font-semibold" onClick={salir}>Cerrar Sesión</button>
+          </header>
+
+          <main className="max-w-[1440px] mx-auto px-4 mt-7">
+            <div className="flex justify-between items-center mb-6">
+              <div><h1 className="text-2xl font-extrabold">Inventario y Operaciones</h1><p className="text-xs text-zinc-500">Gestión conectada a MariaDB</p></div>
+              <button onClick={()=>cargarDatos(token, usuario.role)} className="btn-secondary">↻ Actualizar</button>
+            </div>
+
+            {/* ESTADÍSTICAS */}
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white p-4 rounded-2xl border"><div className="text-xs font-bold text-zinc-500">REFERENCIAS</div><div className="text-2xl font-extrabold mt-1">{estadisticas.referencias}</div><div className="text-xs text-zinc-400">{fmt(estadisticas.unidades)} unidades</div></div>
+              <div className="bg-white p-4 rounded-2xl border"><div className="text-xs font-bold text-red-600">STOCK BAJO</div><div className="text-2xl font-extrabold mt-1 text-red-600">{estadisticas.bajo}</div><div className="text-xs text-zinc-400">&lt; 3 unidades</div></div>
+              <div className="bg-white p-4 rounded-2xl border"><div className="text-xs font-bold text-amber-600">STOCK MEDIO</div><div className="text-2xl font-extrabold mt-1 text-amber-600">{estadisticas.medio}</div><div className="text-xs text-zinc-400">3 a 10 unidades</div></div>
+              <div className="bg-white p-4 rounded-2xl border"><div className="text-xs font-bold text-emerald-600">STOCK ALTO</div><div className="text-2xl font-extrabold mt-1 text-emerald-600">{estadisticas.alto}</div><div className="text-xs text-zinc-400">&gt; 10 unidades</div></div>
+            </div>
+
+            {/* BARRA DE BOTONES RESTAURADA */}
+            <div className="bg-white border rounded-2xl p-4 shadow-sm flex flex-wrap gap-3 justify-between items-center mb-5">
+              <div className="flex gap-2 flex-1"><input className="field-control max-w-[320px]" value={busqueda} onChange={e=>setBusqueda(e.target.value)} placeholder="Buscar prenda o SKU..." /><select className="field-control max-w-[160px]" value={filtroTalla} onChange={e=>setFiltroTalla(e.target.value)}><option value="TODAS">Todas las tallas</option>{['XS','S','M','L','XL','ÚNICA'].map(t=><option key={t}>{t}</option>)}</select></div>
+              <div className="flex flex-wrap gap-2">
+                {puedeInventario && <button className="btn-primary" onClick={()=>setModalProducto(true)}>＋ Nueva Prenda</button>}
+                {esAdmin && (
+                  <>
+                    <button className="btn-secondary" onClick={()=>setModalColeccion(true)}>＋ Colección</button>
+                    <button className="btn-secondary" onClick={()=>setModalTrabajador(true)}>✉ Crear Trabajador</button>
+                    <button className="btn-secondary" onClick={()=>setModalTrabajadores(true)}>Ver Trabajadores</button>
+                  </>
+                )}
+                <button className="btn-secondary" onClick={()=>setModalChat(true)}>💬 Canal Páramo</button>
+              </div>
+            </div>
+
+            {/* TABLA DE INVENTARIO CON ACCIONES */}
+            <div className="bg-white border rounded-2xl overflow-hidden shadow-sm">
+              <table className="w-full text-left border-collapse">
+                <thead><tr className="bg-zinc-50 border-b text-[10px] text-zinc-500"><th className="p-4">SKU</th><th className="p-4">PRENDA</th><th className="p-4">TALLA</th><th className="p-4">COLOR</th><th className="p-4">STOCK</th><th className="p-4">ESTADO</th><th className="p-4">ACCIONES</th></tr></thead>
+                <tbody className="divide-y text-xs">
+                  {inventarioFiltrado.map(item => {
+                    const sem = stockStatus(item.stock);
+                    return (
+                      <tr key={item.id} className="hover:bg-zinc-50">
+                        <td className="p-4 mono">{item.sku}</td>
+                        <td className="p-4 font-semibold">{item.producto_nombre}</td>
+                        <td className="p-4"><span className="px-2 py-1 border rounded-md">{item.talla}</span></td>
+                        <td className="p-4">{item.color}</td>
+                        <td className="p-4 mono font-bold">{fmt(item.stock)} u.</td>
+                        <td className="p-4"><span className="px-2.5 py-1 rounded-full font-bold text-[10px]" style={{color:sem.color, background:sem.bg}}>{sem.label}</span></td>
+                        <td className="p-4">
+                          {puedeInventario && (
+                            <div className="flex gap-1">
+                              <button className="btn-primary !px-2 !py-1 !text-[10px]" onClick={()=>ajusteStock(item, 5)}>+5</button>
+                              <button className="btn-secondary !px-2 !py-1 !text-[10px]" onClick={()=>ajusteStock(item, -1)}>−</button>
+                              <button className="btn-secondary !px-2 !py-1 !text-[10px]" onClick={()=>{setModalEditarStock(item); setStockEditado(item.stock);}}>Editar</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </main>
+
+          {/* MODAL NUEVA PRENDA */}
+          {modalProducto && (
+            <div className="modal-backdrop" onClick={()=>setModalProducto(false)}>
+              <div className="modal-card" onClick={e=>e.stopPropagation()}>
+                <h2 className="font-extrabold text-xl mb-4">Añadir Nueva Prenda a Outfiya</h2>
+                <form className="grid gap-4" onSubmit={crearProducto}>
+                  <div><label className="field-label">NOMBRE DE LA PRENDA *</label><input className="field-control" required placeholder="Ej. Chaqueta Páramo Neón" value={formProducto.nombre} onChange={e=>setFormProducto({...formProducto, nombre:e.target.value})} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="field-label">CATEGORÍA *</label>
+                      <select className="field-control" value={formProducto.categoria} onChange={e=>setFormProducto({...formProducto, categoria:e.target.value})}>
+                        <option value="Chaquetas">Chaquetas</option>
+                        <option value="Camisones">Camisones / Camisetas</option>
+                        <option value="Hoodies">Hoodies / Buzos</option>
+                        <option value="Pantalones">Pantalones / Jeans</option>
+                        <option value="Tops">Tops</option>
+                        <option value="Vestidos">Vestidos</option>
+                      </select>
+                    </div>
+                    <div><label className="field-label">PRECIO COP ($) *</label><input className="field-control" type="number" required placeholder="129900" value={formProducto.precio} onChange={e=>setFormProducto({...formProducto, precio:e.target.value})} /></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="field-label">PISO TÉRMICO *</label>
+                      <select className="field-control" value={formProducto.piso_termico} onChange={e=>setFormProducto({...formProducto, piso_termico:e.target.value})}>
+                        <option value="PÁRAMO">PÁRAMO (Frío extremo)</option>
+                        <option value="TEMPLADO">TEMPLADO (Clima medio)</option>
+                        <option value="CÁLIDO">CÁLIDO (Clima cálido)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">GÉNERO *</label>
+                      <select className="field-control" value={formProducto.genero} onChange={e=>setFormProducto({...formProducto, genero:e.target.value})}>
+                        <option value="UNISEX">UNISEX</option>
+                        <option value="HOMBRE">HOMBRE</option>
+                        <option value="MUJER">MUJER</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">COLECCIÓN</label>
+                      <select className="field-control" value={formProducto.id_coleccion} onChange={e=>setFormProducto({...formProducto, id_coleccion:e.target.value})}>
+                        <option value="">Sin colección</option>
+                        {colecciones.map(c=><option key={c.id_coleccion} value={c.id_coleccion}>{c.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="field-label">MATERIAL</label><input className="field-control" placeholder="Ej. Algodón Perchado" value={formProducto.material} onChange={e=>setFormProducto({...formProducto, material:e.target.value})} /></div>
+                    <div><label className="field-label">SKU (OPCIONAL)</label><input className="field-control mono" placeholder="Autogenerado" value={formProducto.sku} onChange={e=>setFormProducto({...formProducto, sku:e.target.value})} /></div>
+                  </div>
+                  <div><label className="field-label">DESCRIPCIÓN</label><textarea className="field-control" rows="2" placeholder="Detalles de corte, confección..." value={formProducto.descripcion} onChange={e=>setFormProducto({...formProducto, descripcion:e.target.value})} /></div>
+                  <div className="p-3 bg-zinc-50 border rounded-xl">
+                    <label className="field-label">IMAGEN DESDE TU COMPUTADORA (LOCAL)</label>
+                    <input type="file" accept="image/*" onChange={e=>setArchivoImagen(e.target.files[0])} className="text-xs block w-full mt-1 mb-2" />
+                    <input className="field-control" type="url" placeholder="O pega la URL de imagen..." value={formProducto.imagen_url} onChange={e=>setFormProducto({...formProducto, imagen_url:e.target.value})} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 p-3 bg-zinc-100 rounded-xl">
+                    <div><label className="field-label">TALLA *</label><select className="field-control" value={formProducto.talla} onChange={e=>setFormProducto({...formProducto, talla:e.target.value})}>{['XS','S','M','L','XL','ÚNICA'].map(t=><option key={t}>{t}</option>)}</select></div>
+                    <div><label className="field-label">COLOR *</label><input className="field-control" required value={formProducto.color} onChange={e=>setFormProducto({...formProducto, color:e.target.value})} /></div>
+                    <div><label className="field-label">STOCK *</label><input className="field-control" type="number" min="0" required value={formProducto.stock} onChange={e=>setFormProducto({...formProducto, stock:e.target.value})} /></div>
+                  </div>
+                  <div className="flex justify-end gap-2 border-t pt-3"><button type="button" className="btn-secondary" onClick={()=>setModalProducto(false)}>Cancelar</button><button type="submit" className="btn-primary btn-accent" disabled={guardando}>{guardando ? 'Guardando...' : 'Guardar Prenda'}</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL CREAR COLECCIÓN */}
+          {modalColeccion && (
+            <div className="modal-backdrop" onClick={()=>setModalColeccion(false)}>
+              <div className="modal-card max-w-[480px]" onClick={e=>e.stopPropagation()}>
+                <h3 className="font-extrabold text-lg mb-3">Nueva Colección</h3>
+                <form className="grid gap-3" onSubmit={crearColeccion}>
+                  <div><label className="field-label">NOMBRE DE LA COLECCIÓN *</label><input className="field-control" required placeholder="Ej. Páramo Nómada 2026" value={formColeccion.nombre} onChange={e=>setFormColeccion({...formColeccion, nombre:e.target.value})} /></div>
+                  <div><label className="field-label">DESCRIPCIÓN</label><textarea className="field-control" rows="2" value={formColeccion.descripcion} onChange={e=>setFormColeccion({...formColeccion, descripcion:e.target.value})} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="field-label">TEMPORADA</label><input className="field-control" value={formColeccion.temporada} onChange={e=>setFormColeccion({...formColeccion, temporada:e.target.value})} /></div>
+                    <div><label className="field-label">AÑO</label><input className="field-control" type="number" value={formColeccion.anio} onChange={e=>setFormColeccion({...formColeccion, anio:e.target.value})} /></div>
+                  </div>
+                  <div className="flex justify-end gap-2 border-t pt-3"><button type="button" className="btn-secondary" onClick={()=>setModalColeccion(false)}>Cancelar</button><button type="submit" className="btn-primary">Guardar Colección</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL CREAR TRABAJADOR */}
+          {modalTrabajador && (
+            <div className="modal-backdrop" onClick={()=>setModalTrabajador(false)}>
+              <div className="modal-card max-w-[480px]" onClick={e=>e.stopPropagation()}>
+                <h3 className="font-extrabold text-lg mb-3">Registrar Nuevo Trabajador</h3>
+                <form className="grid gap-3" onSubmit={crearTrabajador}>
+                  <div><label className="field-label">NOMBRE COMPLETO *</label><input className="field-control" required placeholder="Carlos Mendoza" value={formTrabajador.nombre} onChange={e=>setFormTrabajador({...formTrabajador, nombre:e.target.value})} /></div>
+                  <div><label className="field-label">CORREO CORPORATIVO (@outfiya.com) *</label><input className="field-control" type="email" required placeholder="carlos@outfiya.com" value={formTrabajador.correo} onChange={e=>setFormTrabajador({...formTrabajador, correo:e.target.value})} /></div>
+                  <div><label className="field-label">ROL *</label><select className="field-control" value={formTrabajador.role} onChange={e=>setFormTrabajador({...formTrabajador, role:e.target.value})}><option value="PLANTA">PLANTA</option><option value="PUNTO">PUNTO DE VENTA</option><option value="ADMINISTRADOR">ADMINISTRADOR</option></select></div>
+                  <div><label className="field-label">CONTRASEÑA TEMPORAL *</label><input className="field-control" type="password" required placeholder="Mínimo 8 caracteres" value={formTrabajador.contrasena} onChange={e=>setFormTrabajador({...formTrabajador, contrasena:e.target.value})} /></div>
+                  <div className="flex justify-end gap-2 border-t pt-3"><button type="button" className="btn-secondary" onClick={()=>setModalTrabajador(false)}>Cancelar</button><button type="submit" className="btn-primary">Crear Cuenta</button></div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL VER TRABAJADORES */}
+          {modalTrabajadores && (
+            <div className="modal-backdrop" onClick={()=>setModalTrabajadores(false)}>
+              <div className="modal-card max-w-[550px]" onClick={e=>e.stopPropagation()}>
+                <h3 className="font-extrabold text-lg mb-3">Trabajadores en MariaDB</h3>
+                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                  {trabajadores.length === 0 ? <p className="text-xs text-zinc-500">No hay trabajadores o no se han cargado.</p> : trabajadores.map(t=>(
+                    <div key={t.id_usuario} className="border p-3 rounded-xl flex justify-between items-center bg-zinc-50">
+                      <div><div className="font-semibold text-sm">{t.nombre} {t.apellido}</div><div className="text-xs text-zinc-500">{t.correo}</div></div>
+                      <span className="text-[10px] bg-zinc-200 px-2.5 py-1 rounded-full font-extrabold">{roleLabel(t.role)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end mt-4"><button className="btn-secondary" onClick={()=>setModalTrabajadores(false)}>Cerrar</button></div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL EDITAR STOCK MANUAL */}
+          {modalEditarStock && (
+  <div className="modal-backdrop" onClick={()=>setModalEditarStock(null)}>
+    <div className="modal-card max-w-[380px]" onClick={e=>e.stopPropagation()}>
+      <h3 className="font-extrabold text-base mb-2">Editar Stock y Precio</h3>
+      <p className="text-xs text-zinc-500 mb-3">{modalEditarStock.producto_nombre} ({modalEditarStock.talla} / {modalEditarStock.color})</p>
+      <form onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          await apiRequest(`/trabajadores/inventario/${modalEditarStock.id}`, {
+            method: 'PATCH',
+            token,
+            body: { stock: Number(stockEditado), precio: Number(precioEditado) }
+          });
+          setModalEditarStock(null);
+          await cargarDatos(token, usuario.role);
+          notificar('¡Stock y precio actualizados con éxito!');
+        } catch (err) {
+          notificar(err.message, 'error');
+        }
+      }} className="grid gap-3">
+        <div>
+          <label className="field-label">CANTIDAD DE UNIDADES</label>
+          <input className="field-control" type="number" min="0" required value={stockEditado} onChange={e=>setStockEditado(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">PRECIO (COP)</label>
+          <input className="field-control" type="number" min="0" required value={precioEditado} onChange={e=>setPrecioEditado(e.target.value)} />
+        </div>
+        <div className="flex justify-end gap-2 border-t pt-2">
+          <button type="button" className="btn-secondary" onClick={()=>setModalEditarStock(null)}>Cancelar</button>
+          <button type="submit" className="btn-primary">Guardar Cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+          {/* MODAL CHAT CANAL PÁRAMO */}
+          {modalChat && (
+            <div className="modal-backdrop" onClick={()=>setModalChat(false)}>
+              <div className="modal-card max-w-[460px]" onClick={e=>e.stopPropagation()}>
+                <h3 className="font-extrabold text-lg mb-3">💬 Canal Páramo</h3>
+                <div className="h-[280px] overflow-y-auto space-y-2 p-2 bg-zinc-50 rounded-xl mb-3 border">
+                  {chatMessages.map(m => (
+                    <div key={m.id} className="bg-white p-3 rounded-lg border shadow-sm">
+                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1 font-mono"><span className="font-semibold text-[#c8553d]">{m.tienda}</span><span>{m.hora}</span></div>
+                      <div className="text-xs">{m.texto}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input className="field-control" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Escribe un mensaje interno..." />
+                  <button className="btn-primary" onClick={()=>{
+                    if(!chatInput.trim()) return;
+                    setChatMessages([...chatMessages, { id:Date.now(), tienda:usuario.nombre, texto:chatInput, hora:new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }]);
+                    setChatInput('');
+                  }}>Enviar</button>
+                </div>
+              </div>
+            </div>
+          )}
+          onClick={() => {
+  setModalEditarStock(item); 
+  setStockEditado(item.stock);
+  setPrecioEditado(item.precio || ''); // Carga el precio actual de la prenda
+}}
+
+          {mensaje && <div className="toast">{mensaje.texto}</div>}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<AppTrabajadores />);
+  </script>
+</body>
+</html>
